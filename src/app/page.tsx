@@ -139,10 +139,11 @@ export default function HomePage() {
         fileInput.value = '';
       }
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Import failed:", err);
+      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred during import.";
       setNotification({ 
-        message: err.message || "An unexpected error occurred during import.", 
+        message: errorMessage, 
         type: 'error' 
       });
     } finally {
