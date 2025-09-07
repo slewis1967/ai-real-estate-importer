@@ -8,16 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, UploadCloud, CheckCircle, XCircle } from "lucide-react";
 
-// Notification component for user feedback
-function Notification({ 
-  message, 
-  type, 
-  onDismiss 
-}: { 
-  message: string; 
-  type: 'success' | 'error'; 
-  onDismiss: () => void 
-}) {
+interface NotificationProps {
+  message: string;
+  type: 'success' | 'error';
+  onDismiss: () => void;
+}
+
+function Notification({ message, type, onDismiss }: NotificationProps) {
   const bgColor = type === 'success' ? 'bg-green-50' : 'bg-red-50';
   const textColor = type === 'success' ? 'text-green-800' : 'text-red-800';
   const borderColor = type === 'success' ? 'border-green-200' : 'border-red-200';
@@ -54,7 +51,6 @@ export default function HomePage() {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
       
-      // Validate file type
       if (selectedFile.type !== 'application/pdf') {
         setNotification({ 
           message: "Please select a PDF file.", 
@@ -63,7 +59,6 @@ export default function HomePage() {
         return;
       }
       
-      // Validate file size (10MB limit)
       if (selectedFile.size > 10 * 1024 * 1024) {
         setNotification({ 
           message: "File size must be less than 10MB.", 
@@ -89,12 +84,10 @@ export default function HomePage() {
     setIsImporting(true);
     setNotification(null);
     
-    // Generate unique filename with timestamp
     const timestamp = Date.now();
     const fileName = `${timestamp}-${file.name}`;
 
     try {
-      // 1. Upload PDF to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from("temp-uploads")
         .upload(fileName, file, {
@@ -106,14 +99,12 @@ export default function HomePage() {
         throw new Error(`Upload failed: ${uploadError.message}`);
       }
 
-      // 2. Get public URL for the uploaded file
       const { data: publicUrlData } = supabase.storage
         .from("temp-uploads")
         .getPublicUrl(fileName);
       
       const publicUrl = publicUrlData.publicUrl;
 
-      // 3. Call Supabase Edge Function to process PDF
       const { data, error: functionError } = await supabase.functions.invoke('import-property', {
         body: { 
           pdfUrl: publicUrl, 
@@ -125,23 +116,21 @@ export default function HomePage() {
         throw new Error(`Processing failed: ${functionError.message}`);
       }
 
-      // 4. Success - show results
       const propertyAddress = data?.property?.address || 'Unknown address';
       setNotification({ 
         message: `Success! Property "${propertyAddress}" has been imported and processed.`, 
         type: 'success' 
       });
 
-      // Clear file input after successful import
       setFile(null);
       const fileInput = document.getElementById('pdf-upload') as HTMLInputElement;
       if (fileInput) {
         fileInput.value = '';
       }
 
-    } catch (err: unknown) {
-      console.error("Import failed:", err);
-      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred during import.";
+    } catch (error) {
+      console.error("Import failed:", error);
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred during import.";
       setNotification({ 
         message: errorMessage, 
         type: 'error' 
