@@ -2,10 +2,6 @@
 
 import { useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Loader2, UploadCloud, CheckCircle, XCircle } from "lucide-react";
 
 interface NotificationProps {
@@ -15,20 +11,18 @@ interface NotificationProps {
 }
 
 function Notification({ message, type, onDismiss }: NotificationProps) {
-  const bgColor = type === 'success' ? 'bg-green-50' : 'bg-red-50';
-  const textColor = type === 'success' ? 'text-green-800' : 'text-red-800';
-  const borderColor = type === 'success' ? 'border-green-200' : 'border-red-200';
+  const bgColor = type === 'success' ? 'notification-success' : 'notification-error';
   const Icon = type === 'success' ? CheckCircle : XCircle;
 
   return (
-    <div className={`p-4 mt-4 rounded-md border ${bgColor} ${textColor} ${borderColor} flex items-start gap-3`}>
-      <Icon className="h-5 w-5 flex-shrink-0 mt-0.5" />
-      <div className="flex-1">
-        <p className="text-sm font-medium">{message}</p>
+    <div className={`notification ${bgColor}`}>
+      <Icon className="notification-icon" />
+      <div className="notification-content">
+        <p>{message}</p>
       </div>
       <button 
         onClick={onDismiss} 
-        className="text-current hover:text-opacity-75 text-lg font-bold"
+        className="notification-close"
         aria-label="Dismiss notification"
       >
         ×
@@ -119,7 +113,7 @@ export default function HomePage() {
         throw new Error(`Processing failed: ${functionError.message}`);
       }
 
-      const propertyAddress = data?.property?.address || 'Unknown address';
+      const propertyAddress = (data as { property?: { address?: string } })?.property?.address || 'Unknown address';
       setNotification({ 
         message: `Success! Property "${propertyAddress}" has been imported and processed.`, 
         type: 'success' 
@@ -144,64 +138,61 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl">
-        <Card className="shadow-lg">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 p-3 bg-blue-100 rounded-full w-fit">
-              <UploadCloud className="h-8 w-8 text-blue-600" />
+    <div className="container">
+      <div className="card-wrapper">
+        <div className="card">
+          <div className="card-header">
+            <div className="icon-wrapper">
+              <UploadCloud className="upload-icon" />
             </div>
-            <CardTitle className="text-2xl font-bold text-gray-900">
-              AI Real Estate Importer
-            </CardTitle>
-            <CardDescription className="text-gray-600 max-w-md mx-auto">
+            <h1 className="title">AI Real Estate Importer</h1>
+            <p className="description">
               Upload a real estate PDF document to automatically extract property details 
               using AI-powered analysis.
-            </CardDescription>
-          </CardHeader>
+            </p>
+          </div>
           
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="pdf-upload" className="text-sm font-medium text-gray-700">
+          <div className="card-content">
+            <div className="form-group">
+              <label htmlFor="pdf-upload" className="label">
                 Select PDF Document
-              </Label>
-              <Input 
+              </label>
+              <input 
                 id="pdf-upload" 
                 type="file" 
                 accept=".pdf"
                 onChange={handleFileChange}
-                className="cursor-pointer file:cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                className="file-input"
               />
-              <p className="text-xs text-gray-500">
+              <p className="help-text">
                 Maximum file size: 10MB. Only PDF files are accepted.
               </p>
             </div>
             
-            <Button
+            <button
               onClick={handleImport}
               disabled={!file || isImporting}
-              className="w-full h-12 text-base font-semibold"
-              size="lg"
+              className="btn-primary"
             >
               {isImporting ? (
                 <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  <Loader2 className="btn-icon animate-spin" />
                   Processing Document...
                 </>
               ) : (
                 <>
-                  <UploadCloud className="mr-2 h-5 w-5" />
+                  <UploadCloud className="btn-icon" />
                   Import Property Listing
                 </>
               )}
-            </Button>
+            </button>
             
             {file && (
-              <div className="p-3 bg-gray-50 rounded-md border">
-                <p className="text-sm text-gray-600">
-                  <span className="font-medium">Selected file:</span> {file.name}
+              <div className="file-info">
+                <p>
+                  <span className="file-label">Selected file:</span> {file.name}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="file-size">
                   Size: {(file.size / 1024 / 1024).toFixed(2)} MB
                 </p>
               </div>
@@ -214,8 +205,8 @@ export default function HomePage() {
                 onDismiss={() => setNotification(null)} 
               />
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );
