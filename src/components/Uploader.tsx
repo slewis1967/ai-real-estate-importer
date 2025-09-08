@@ -31,11 +31,58 @@ export default function Uploader() {
     setError(null);
 
     try {
-      // 1. Get the current user's session to obtain the access token
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("User is not authenticated. Please log in again.");
 
       const filePath = `${session.user.id}/${file.name}`;
 
-      // 2. Upload the file to Supabase storage
-      const { error: uploadError
+      const { error: uploadError } = await supabase.storage
+        .from("temp-uploads")
+        .upload(filePath, file, { upsert: true }); // This line was incomplete
+      if (uploadError) throw new Error(`File upload failed: ${uploadError.message}`);
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("temp-uploads")
+        .getPublicUrl(filePath);
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/import-property`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ pdfUrl: publicUrl, fileName: file.name }),
+      });
+
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "An unknown error occurred during import.");
+
+      alert("Import Successful!");
+      setFile(null);
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  return (
+    <Card className="w-full max-w-xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><UploadCloud size={24} /> AI Real Estate Importer</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="pdf-upload">Upload PDF Document</Label>
+          <Input id="pdf-upload" type="file" accept=".pdf" onChange={handleFileChange} />
+        </div>
+        <Button onClick={handleImport} disabled={!file || isImporting} className="w-full">
+          {isImporting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing...</> : "Import Listing"}
+        </Button>
+        {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+      </CardContent>
+    </Card>
+  );
+}
