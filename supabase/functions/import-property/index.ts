@@ -1,109 +1,216 @@
-// supabase/functions/import-property/index.ts
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2";
-import { OpenAI } from "https://esm.sh/openai@4.52.7";
-import * as pdfjs from "https://cdn.skypack.dev/pdfjs-dist/build/pdf.min.js";
-
-const PROPERTY_JSON_SCHEMA = {
-  address: "string", price: "number", bedrooms: "number", bathrooms: "number",
-  car_spaces: "number", land_area_sqm: "number", house_area_sqm: "number",
-  description: "string", features: "array<string>",
-};
-
-const openai = new OpenAI({ apiKey: Deno.env.get("OPENAI_API_KEY") });
+console.log("🚀 Function starting...")
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+Deno.serve(async (req: Request) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    console.log("📋 CORS preflight request")
+    return new Response('ok', { headers: corsHeaders })
   }
+
+  console.log("📥 Processing", req.method, "request")
 
   try {
-    // --- NEW, CORRECT AUTHENTICATION PATTERN ---
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!
-    );
-
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("Missing authorization header");
+    // Step 1: Check Authorization header
+    const authHeader = req.headers.get('Authorization')
+    console.log("🔑 Auth header check:", {
+      exists: !!authHeader,
+      startsWithBearer: authHeader?.startsWith('Bearer '),
+      length: authHeader?.length
+    })
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error("❌ Invalid or missing Authorization header")
+      return new Response(
+        JSON.stringify({ 
+          error: 'Missing or invalid Authorization header',
+          received: authHeader ? 'Header exists but invalid format' : 'No header'
+        }), 
+        { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    const { error: sessionError } = await supabase.auth.setSession({
-      access_token: token,
-      refresh_token: "", // Not needed for this one-off request
-    });
+    // Step 2: Create Supabase client
+    console.log("🔧 Creating Supabase client...")
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')
+    
+    console.log("🔧 Environment check:", {
+      hasUrl: !!supabaseUrl,
+      hasAnonKey: !!supabaseAnonKey,
+      urlLength: supabaseUrl?.length,
+      keyLength: supabaseAnonKey?.length
+    })
 
-    if (sessionError) {
-      throw new Error("Failed to set user session from token");
-    }
-    // --- END OF NEW PATTERN ---
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("Could not get user from session");
-
-    const { pdfUrl, fileName } = await req.json();
-    if (!pdfUrl) throw new Error("PDF URL is required");
-
-    const response = await fetch(pdfUrl);
-    if (!response.ok) throw new Error(`Failed to fetch PDF: ${response.statusText}`);
-    const pdfBytes = new Uint8Array(await response.arrayBuffer());
-
-    let fullText = "";
-    const pdf = await pdfjs.getDocument({ data: pdfBytes }).promise;
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      fullText += textContent.items.map((item: any) => item.str).join(" ");
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error("❌ Missing environment variables")
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error' }), 
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: `You are a real estate data extraction bot. Extract details into this JSON schema: ${JSON.stringify(PROPERTY_JSON_SCHEMA)}` },
-        { role: "user", content: fullText },
-      ],
-      response_format: { type: "json_object" },
-    });
+    const supabaseClient = createClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      {
+        global: {
+          headers: { Authorization: authHeader },
+        },
+      }
+    )
+    console.log("✅ Supabase client created")
 
-    const propertyData = JSON.parse(completion.choices[0].message.content || "{}");
+    // Step 3: Verify user authentication
+    console.log("👤 Getting user...")
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
+    
+    console.log("👤 User verification:", {
+      hasUser: !!user,
+      userId: user?.id,
+      userEmail: user?.email,
+      error: userError?.message
+    })
+    
+    if (userError || !user) {
+      console.error("❌ User authentication failed:", userError)
+      return new Response(
+        JSON.stringify({ 
+          error: 'Authentication failed', 
+          details: userError?.message || 'No user found',
+          code: userError?.code
+        }), 
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
-    const { data, error } = await supabase
-      .from("properties")
-      .insert({
-        user_id: user.id,
-        address: propertyData.address,
-        price: propertyData.price,
-        bedrooms: propertyData.bedrooms,
-        bathrooms: propertyData.bathrooms,
-        car_spaces: propertyData.car_spaces,
-        land_area_sqm: propertyData.land_area_sqm,
-        house_area_sqm: propertyData.house_area_sqm,
-        description: propertyData.description,
-        features: propertyData.features,
-        status: "imported",
-        source_pdf_name: fileName,
-      })
+    console.log(`✅ Authenticated as: ${user.id} (${user.email})`)
+
+    // Step 4: Parse request body
+    console.log("📄 Parsing request body...")
+    let requestData: any = {}
+    
+    try {
+      const bodyText = await req.text()
+      console.log("📄 Raw body length:", bodyText.length)
+      
+      if (bodyText) {
+        requestData = JSON.parse(bodyText)
+        console.log("📄 Parsed data keys:", Object.keys(requestData))
+      }
+    } catch (parseError) {
+      console.error("❌ JSON parse error:", parseError)
+      return new Response(
+        JSON.stringify({ error: 'Invalid JSON in request body' }), 
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Step 5: Test database connection
+    console.log("🔍 Testing database connection...")
+    const { data: testData, error: testError } = await supabaseClient
+      .from('properties')
+      .select('id')
+      .limit(1)
+
+    console.log("🔍 Database test:", {
+      success: !testError,
+      dataLength: testData?.length,
+      error: testError?.message
+    })
+
+    if (testError) {
+      console.error("❌ Database connection failed:", testError)
+      return new Response(
+        JSON.stringify({ 
+          error: 'Database connection test failed', 
+          details: testError.message,
+          code: testError.code,
+          hint: testError.hint
+        }), 
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Step 6: Prepare insert data
+    const insertData = {
+      user_id: user.id,
+      // Add basic fields - adjust based on your table structure
+      title: requestData.title || 'Test Property',
+      description: requestData.description || 'Test Description',
+      created_at: new Date().toISOString(),
+      ...requestData
+    }
+
+    console.log("💾 Preparing insert:", {
+      user_id: insertData.user_id,
+      fieldsCount: Object.keys(insertData).length,
+      fields: Object.keys(insertData)
+    })
+
+    // Step 7: Insert data
+    console.log("💾 Inserting into properties table...")
+    const { data, error } = await supabaseClient
+      .from('properties')
+      .insert(insertData)
       .select()
-      .single();
 
-    if (error) throw new Error(`Database insert error: ${error.message}`);
+    if (error) {
+      console.error("❌ Insert failed:", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      })
+      
+      return new Response(
+        JSON.stringify({ 
+          error: 'Insert operation failed', 
+          details: error.message,
+          code: error.code,
+          hint: error.hint,
+          insertData: insertData
+        }), 
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
-    return new Response(JSON.stringify({ success: true, property: data }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.log("✅ Insert successful:", {
+      rowsInserted: data?.length,
+      insertedIds: data?.map((row: any) => row.id)
+    })
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        message: "Property imported successfully",
+        data: data,
+        user: {
+          id: user.id,
+          email: user.email
+        }
+      }), 
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error('💥 Unexpected error:', error)
+    return new Response(
+      JSON.stringify({ 
+        error: 'Internal server error', 
+        details: error.message,
+        stack: error.stack
+      }), 
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
   }
-});
+})
